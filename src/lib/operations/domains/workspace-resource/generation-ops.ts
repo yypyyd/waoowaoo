@@ -13,6 +13,7 @@ import {
 } from '@/lib/ai-exec/media-preflight'
 import {
   MediaInputTransportUnsupportedError,
+  resolveEffectiveCapabilitiesByModelKey,
   type ProviderMediaInputKind,
 } from '@/lib/ai-exec/media-input-transport'
 import { resolveBuiltinCapabilitiesByModelKey } from '@/lib/ai-registry/capabilities-catalog'
@@ -399,7 +400,7 @@ function throwMediaPreflightError(
   }), error)
 }
 
-function validateReferenceCapabilities(input: {
+export function validateReferenceCapabilities(input: {
   readonly mediaType: PlannedResource['mediaType']
   readonly modelKey: string
   readonly references: readonly z.infer<typeof generationReferenceSchema>[]
@@ -409,7 +410,10 @@ function validateReferenceCapabilities(input: {
   const videoReferences = input.references.filter((reference) => reference.channel === 'video')
 
   if (input.mediaType === 'video' || input.mediaType === 'image') {
-    const capabilities = resolveBuiltinCapabilitiesByModelKey(input.mediaType, input.modelKey)
+    // Reference validation must use the same effective capabilities as the
+    // production model pool. Builtin-only lookup makes every custom-platform
+    // video model look like it supports no input modes at all.
+    const capabilities = resolveEffectiveCapabilitiesByModelKey(input.mediaType, input.modelKey)
     const video = capabilities?.video
     if (input.mediaType === 'image' && capabilities?.image?.maxReferenceImages === undefined) return
     const issue = validateGenerationReferences({
@@ -531,7 +535,7 @@ async function validateReferenceMediaCapabilities(input: {
   readonly frozenReferences: readonly WorkspaceResourceInputRef[]
 }): Promise<void> {
   if (input.mediaType !== 'video') return
-  const capabilities = resolveBuiltinCapabilitiesByModelKey('video', input.modelKey)?.video
+  const capabilities = resolveEffectiveCapabilitiesByModelKey('video', input.modelKey)?.video
   for (const [channel, minimumDurationMs, maximumDurationMs, maximumTotalDurationMs] of [
     ['audio', capabilities?.minReferenceAudioDurationMs, capabilities?.maxReferenceAudioDurationMs, capabilities?.maxTotalReferenceAudioDurationMs],
     ['video', capabilities?.minReferenceVideoDurationMs, capabilities?.maxReferenceVideoDurationMs, capabilities?.maxTotalReferenceVideoDurationMs],
