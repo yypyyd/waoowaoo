@@ -504,4 +504,83 @@ describe('provider contract - OpenRouter image', () => {
       options: normalizeImageOptions({ aspectRatio: '1:1', resolution: '1K', quality: 'low' }),
     })).rejects.toThrow('OPENROUTER_IMAGE_RESPONSE_MISSING_IMAGE')
   })
+
+  it('uses the OpenAI-compatible generations endpoint for custom platforms', async () => {
+    server!.defineScenario({
+      method: 'POST',
+      path: '/relay/v1/images/generations',
+      mode: 'success',
+      submitResponse: {
+        status: 200,
+        body: {
+          created: 1_785_406_500,
+          data: [{ b64_json: PNG_1X1_BASE64 }],
+        },
+      },
+    })
+
+    const result = await requestOpenRouterImage({
+      baseUrl: `${server!.baseUrl}/relay/v1`,
+      apiKey: 'relay-image-key',
+      modelId: 'gpt-image-2',
+      providerId: 'openrouter:custom1',
+      prompt: 'paint a watercolor city scene',
+      options: normalizeImageOptions({
+        aspectRatio: '1:1',
+        resolution: '1K',
+        quality: 'high',
+        outputFormat: 'png',
+      }),
+    })
+
+    expect(result).toEqual({
+      success: true,
+      imageBase64: PNG_1X1_BASE64,
+      imageUrl: `data:image/png;base64,${PNG_1X1_BASE64}`,
+    })
+    const requests = server!.getRequests('POST', '/relay/v1/images/generations')
+    expect(requests).toHaveLength(1)
+    expect(requests[0]?.headers.authorization).toBe('Bearer relay-image-key')
+    const body = JSON.parse(requests[0]?.bodyText || '{}')
+    expect(body).toEqual({
+      model: 'gpt-image-2',
+      prompt: 'paint a watercolor city scene',
+      n: 1,
+      size: '1088x1088',
+      quality: 'high',
+    })
+    expect(server!.getRequests('POST', '/relay/v1/images')).toHaveLength(0)
+  })
+
+  it('surfaces a custom relay 404 message as a rejected submission, not validation failure', async () => {
+    server!.defineScenario({
+      method: 'POST',
+      path: '/relay/v1/images/generations',
+      mode: 'fatal_error',
+      submitResponse: {
+        status: 404,
+        body: { code: 1, msg: '接口不存在' },
+      },
+    })
+
+    try {
+      await requestOpenRouterImage({
+        baseUrl: `${server!.baseUrl}/relay/v1`,
+        apiKey: 'relay-image-key',
+        modelId: 'gpt-image-2',
+        providerId: 'openrouter:custom1',
+        prompt: 'paint a watercolor city scene',
+        options: normalizeImageOptions({ aspectRatio: '1:1', resolution: '1K', quality: 'low' }),
+      })
+      throw new Error('Expected the submission to fail')
+    } catch (error) {
+      expect(error).toBeInstanceOf(ProviderSubmissionError)
+      expect(error).toMatchObject({
+        code: 'PROVIDER_SUBMISSION_REJECTED',
+        message: '接口不存在',
+        disposition: 'rejected',
+      })
+    }
+    expect(server!.getRequests('POST', '/relay/v1/images/generations')).toHaveLength(1)
+  })
 })
