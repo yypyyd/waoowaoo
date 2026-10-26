@@ -291,6 +291,9 @@ describe('provider contract - OpenRouter video', () => {
   it('gives custom-platform video models synthesized production capabilities', () => {
     const kling = resolveEffectiveCapabilitiesByModelKey('video', 'openrouter:custom1::kling-4.0')
     expect(kling?.video?.durationOptions).toEqual([8])
+    expect(kling?.video?.resolutionOptions).toEqual(['720p'])
+    expect(kling?.video?.maxReferenceImages).toBe(1)
+    expect(kling?.video?.maxReferenceVideos).toBe(0)
     expect(kling?.video?.supportedInputModes).toEqual(
       expect.arrayContaining(['text_to_video', 'first_frame', 'reference']),
     )

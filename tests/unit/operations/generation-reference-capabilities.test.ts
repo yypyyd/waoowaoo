@@ -15,7 +15,7 @@ describe('workspace resource generation reference capabilities', () => {
     })).not.toThrow()
   })
 
-  it('accepts first-frame and reference media for a custom-platform video model', () => {
+  it('accepts a first-frame image for a custom-platform video model', () => {
     expect(() => validateReferenceCapabilities({
       mediaType: 'video',
       modelKey: CUSTOM_KLING_MODEL_KEY,
@@ -26,10 +26,62 @@ describe('workspace resource generation reference capabilities', () => {
         channel: 'image',
       }],
     })).not.toThrow()
+  })
 
+  it('accepts a single reference image but rejects reference video/audio for kling-4.0', () => {
     expect(() => validateReferenceCapabilities({
       mediaType: 'video',
       modelKey: CUSTOM_KLING_MODEL_KEY,
+      references: [
+        {
+          resourceId: 'res_reference_image',
+          contentVersion: 1,
+          role: 'reference_image',
+          channel: 'image',
+        },
+      ],
+    })).not.toThrow()
+
+    // The huantu marketplace listing for kling-4.0 supports one frame /
+    // reference image only; reference videos and audios are not supported.
+    expect(() => validateReferenceCapabilities({
+      mediaType: 'video',
+      modelKey: CUSTOM_KLING_MODEL_KEY,
+      references: [
+        {
+          resourceId: 'res_reference_video',
+          contentVersion: 1,
+          role: 'reference_video',
+          channel: 'video',
+        },
+      ],
+    })).toThrow(expect.objectContaining({
+      details: expect.objectContaining({
+        code: 'VIDEO_MODEL_VIDEO_REFERENCE_LIMIT_EXCEEDED',
+      }),
+    }))
+    expect(() => validateReferenceCapabilities({
+      mediaType: 'video',
+      modelKey: CUSTOM_KLING_MODEL_KEY,
+      references: [
+        {
+          resourceId: 'res_reference_audio',
+          contentVersion: 1,
+          role: 'reference_audio',
+          channel: 'audio',
+        },
+      ],
+    })).toThrow(expect.objectContaining({
+      details: expect.objectContaining({
+        code: 'VIDEO_MODEL_AUDIO_REFERENCE_LIMIT_EXCEEDED',
+      }),
+    }))
+  })
+
+  it('accepts reference media for a generic custom-platform video model', () => {
+    expect(() => validateReferenceCapabilities({
+      mediaType: 'video',
+      modelKey: 'openrouter:custom1::future-model-x',
       references: [
         {
           resourceId: 'res_reference_image',

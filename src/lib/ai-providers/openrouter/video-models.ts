@@ -165,8 +165,31 @@ export function isCustomPlatformProviderId(providerId: string | undefined): bool
  */
 const CUSTOM_PLATFORM_VIDEO_MODEL_OVERRIDES: Readonly<Record<string, {
   readonly durationOptions: readonly number[]
+  readonly resolutionOptions?: readonly string[]
+  readonly aspectRatios?: readonly string[]
+  readonly maxReferenceImages?: number
+  readonly maxReferenceVideos?: number
+  readonly maxReferenceAudios?: number
+  readonly maxReferenceFiles?: number
 }>> = {
-  'kling-4.0': { durationOptions: [8] },
+  // Verified against the huantu.xyz marketplace listing for kling-4.0
+  // (2026-10-26): 720P only, fixed 8 seconds, aspect ratios 16:9 / 1:1 /
+  // 21:9 / 9:16, at most one frame/reference image, and no reference
+  // video or audio inputs.
+  'kling-4.0': {
+    durationOptions: [8],
+    resolutionOptions: ['720p'],
+    aspectRatios: ['16:9', '1:1', '21:9', '9:16'],
+    maxReferenceImages: 1,
+    maxReferenceVideos: 0,
+    maxReferenceAudios: 0,
+    maxReferenceFiles: 1,
+  },
+}
+
+function customPlatformVideoModelOverride(modelId: string | undefined) {
+  if (!modelId) return undefined
+  return CUSTOM_PLATFORM_VIDEO_MODEL_OVERRIDES[modelId.trim().toLowerCase()]
 }
 
 /**
@@ -180,20 +203,20 @@ const CUSTOM_PLATFORM_VIDEO_MODEL_OVERRIDES: Readonly<Record<string, {
  * which the custom transport surfaces verbatim.
  */
 export function buildCustomPlatformVideoCapabilities(modelId: string): VideoCapabilities {
-  const override = CUSTOM_PLATFORM_VIDEO_MODEL_OVERRIDES[modelId.trim().toLowerCase()]
+  const override = customPlatformVideoModelOverride(modelId)
   return {
     supportsTextToVideo: true,
     supportedInputModes: ['text_to_video', 'first_frame', 'reference'],
     generationModeOptions: ['normal'],
     durationOptions: override ? [...override.durationOptions] : [5, 8, 10],
-    resolutionOptions: ['720p', '1080p'],
+    resolutionOptions: override?.resolutionOptions ? [...override.resolutionOptions] : ['720p', '1080p'],
     generateAudioOptions: [true, false],
     supportGenerateAudio: true,
-    assetReferenceMultiReference: true,
-    maxReferenceImages: 9,
-    maxReferenceVideos: 3,
-    maxReferenceAudios: 3,
-    maxReferenceFiles: 12,
+    assetReferenceMultiReference: (override?.maxReferenceFiles ?? 12) > 1,
+    maxReferenceImages: override?.maxReferenceImages ?? 9,
+    maxReferenceVideos: override?.maxReferenceVideos ?? 3,
+    maxReferenceAudios: override?.maxReferenceAudios ?? 3,
+    maxReferenceFiles: override?.maxReferenceFiles ?? 12,
   }
 }
 
@@ -215,9 +238,10 @@ export function buildOpenRouterVideoOptionSchema(
   const model = OPENROUTER_VIDEO_MODELS.find((candidate) => candidate.modelId === modelId)
   if (!model) {
     if (providerId && providerId.includes(':')) {
+      const override = customPlatformVideoModelOverride(modelId)
       return buildMediaOptionSchema('video', {
         validators: {
-          aspectRatio: enumValidator(Object.keys(ASPECT_RATIO_CONFIGS)),
+          aspectRatio: enumValidator(override?.aspectRatios ? [...override.aspectRatios] : Object.keys(ASPECT_RATIO_CONFIGS)),
         },
       })
     }
