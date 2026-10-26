@@ -1,7 +1,11 @@
 import { getDeploymentConfig, type ProviderMediaInputTransport } from '@/lib/deployment/config'
 import type { AiProviderRoute, AiProviderRouteSet } from '@/lib/ai-registry/provider-route-set'
-import { parseModelKeyStrict } from '@/lib/ai-registry/selection'
+import { getProviderKey, parseModelKeyStrict } from '@/lib/ai-registry/selection'
 import { resolveBuiltinCapabilitiesByModelKey } from '@/lib/ai-registry/capabilities-catalog'
+import {
+  buildCustomPlatformVideoCapabilities,
+  isCustomPlatformProviderId,
+} from '@/lib/ai-providers/openrouter/video-models'
 import type {
   AiResolvedSelection,
   ModelCapabilities,
@@ -87,7 +91,9 @@ function supportsTransport(input: {
   mediaKind: ProviderMediaInputKind
   transport: ProviderMediaInputTransport
 }): boolean {
-  const contract = CONTRACT_BY_PROVIDER_MODALITY.get(`${input.provider}:${input.modality}`)
+  // Contracts are keyed by provider key; instantiated custom platforms
+  // (openrouter:<suffix>) share their base provider's media-input contract.
+  const contract = CONTRACT_BY_PROVIDER_MODALITY.get(`${getProviderKey(input.provider)}:${input.modality}`)
   return contract?.transports[input.mediaKind]?.includes(input.transport) === true
 }
 
@@ -196,9 +202,13 @@ export function projectEffectiveMediaCapabilities(
 
   const video = capabilities.video
   if (!video) return capabilities
+  // Custom-platform transports materialize reference media server-side and
+  // upload them as files, so audio/video references are available even when
+  // the base provider's URL-based contract only accepts public URLs.
+  const isCustomPlatform = isCustomPlatformProviderId(parsed.provider)
   const imageAvailable = supportsEffectiveInput(parsed.provider, 'video', 'image')
-  const audioAvailable = supportsEffectiveInput(parsed.provider, 'video', 'audio')
-  const videoAvailable = supportsEffectiveInput(parsed.provider, 'video', 'video')
+  const audioAvailable = isCustomPlatform || supportsEffectiveInput(parsed.provider, 'video', 'audio')
+  const videoAvailable = isCustomPlatform || supportsEffectiveInput(parsed.provider, 'video', 'video')
   const supportedInputModes = video.supportedInputModes?.filter((mode: VideoInputMode) => {
     if (mode === 'text_to_video') return true
     if (mode === 'first_frame' || mode === 'first_last_frame') return imageAvailable
@@ -242,9 +252,19 @@ export function resolveEffectiveCapabilitiesByModelKey(
   modelType: UnifiedModelType,
   modelKey: string,
 ): ModelCapabilities | undefined {
-  return projectEffectiveMediaCapabilities(
-    modelType,
-    modelKey,
-    resolveBuiltinCapabilitiesByModelKey(modelType, modelKey),
-  )
+  const builtin = resolveBuiltinCapabilitiesByModelKey(modelType, modelKey)
+  if (builtin) return projectEffectiveMediaCapabilities(modelType, modelKey, builtin)
+  if (modelType === 'video') {
+    // Video models on instantiated custom platforms (openrouter:<suffix>)
+    // have no builtin catalog entry. Synthesize the generic relay defaults
+    // instead of dropping the model, mirroring the generic option-schema
+    // fallback custom platforms already get for media generation.
+    const parsed = parseModelKeyStrict(modelKey)
+    if (parsed && isCustomPlatformProviderId(parsed.provider)) {
+      return projectEffectiveMediaCapabilities(modelType, modelKey, {
+        video: buildCustomPlatformVideoCapabilities(parsed.modelId),
+      })
+    }
+  }
+  return undefined
 }

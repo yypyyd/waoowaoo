@@ -3,6 +3,7 @@ import { modelAspectRatios } from '@/lib/ai-registry/model-aspect-ratios'
 import { projectVideoGenerationAvailability } from '@/lib/ai-registry/video-generation-availability'
 import { createHash } from 'node:crypto'
 import { resolveEffectiveCapabilitiesByModelKey } from '@/lib/ai-exec/media-input-transport'
+import { resolveBuiltinCapabilitiesByModelKey } from '@/lib/ai-registry/capabilities-catalog'
 import { getProjectModelConfig } from '@/lib/config-service'
 import { prisma } from '@/lib/prisma'
 import type { CapabilitySelections, VideoInputMode, VoiceCapabilities } from '@/lib/ai-registry/types'
@@ -129,7 +130,12 @@ function videoModels(models: readonly StoredModel[]): ProductionVideoModel[] {
     const capabilities = resolveEffectiveCapabilitiesByModelKey('video', model.modelKey)
     if (!capabilities?.video) return []
     const aspectRatios = modelAspectRatios(model.modelKey, 'video')
-    const { video, pricingLimited } = isApiConfigProviderVisible(model.provider)
+    // Custom-platform video models run on synthesized capabilities and have
+    // no catalog pricing to project availability against; projecting would
+    // filter out every resolution and input mode and hide the model (and
+    // the video tool) entirely. Their relay is billed by the user directly.
+    const hasBuiltinCapabilities = Boolean(resolveBuiltinCapabilitiesByModelKey('video', model.modelKey)?.video)
+    const { video, pricingLimited } = hasBuiltinCapabilities && isApiConfigProviderVisible(model.provider)
       ? projectVideoGenerationAvailability({
           modelKey: model.modelKey, video: capabilities.video, aspectRatios,
         })

@@ -152,6 +152,51 @@ export const OPENROUTER_VIDEO_MODELS: readonly OpenRouterVideoModel[] = [
 
 export const OPENROUTER_VIDEO_MODEL_IDS = new Set(OPENROUTER_VIDEO_MODELS.map(({ modelId }) => modelId))
 
+/** Instantiated custom platforms carry an `openrouter:<suffix>` provider id. */
+export function isCustomPlatformProviderId(providerId: string | undefined): boolean {
+  return typeof providerId === 'string' && providerId.includes(':')
+}
+
+/**
+ * Known per-model overrides for custom-platform video models whose real
+ * constraints differ from the generic defaults below. Keyed by the exact
+ * user-configured model id (lowercased). `kling-4.0` on huantu.xyz renders
+ * at a fixed 8 seconds.
+ */
+const CUSTOM_PLATFORM_VIDEO_MODEL_OVERRIDES: Readonly<Record<string, {
+  readonly durationOptions: readonly number[]
+}>> = {
+  'kling-4.0': { durationOptions: [8] },
+}
+
+/**
+ * Default video capabilities for video models added to a custom platform
+ * (openrouter:<suffix>). Such models have no builtin catalog entry, and
+ * without capabilities they are silently dropped from the production model
+ * pool — which also removes the canvas/automation video tool entirely.
+ * The defaults describe the OpenAI-style Videos API surface these relays
+ * implement (text-to-video, first-frame and reference media uploads);
+ * a relay that supports less will reject the request with its own error,
+ * which the custom transport surfaces verbatim.
+ */
+export function buildCustomPlatformVideoCapabilities(modelId: string): VideoCapabilities {
+  const override = CUSTOM_PLATFORM_VIDEO_MODEL_OVERRIDES[modelId.trim().toLowerCase()]
+  return {
+    supportsTextToVideo: true,
+    supportedInputModes: ['text_to_video', 'first_frame', 'reference'],
+    generationModeOptions: ['normal'],
+    durationOptions: override ? [...override.durationOptions] : [5, 8, 10],
+    resolutionOptions: ['720p', '1080p'],
+    generateAudioOptions: [true, false],
+    supportGenerateAudio: true,
+    assetReferenceMultiReference: true,
+    maxReferenceImages: 9,
+    maxReferenceVideos: 3,
+    maxReferenceAudios: 3,
+    maxReferenceFiles: 12,
+  }
+}
+
 export function resolveOpenRouterVideoModel(modelId: string | undefined): OpenRouterVideoModel {
   const model = OPENROUTER_VIDEO_MODELS.find((candidate) => candidate.modelId === modelId)
   if (!model) throw new Error(`OPENROUTER_VIDEO_MODEL_UNSUPPORTED:${modelId ?? '<missing>'}`)
