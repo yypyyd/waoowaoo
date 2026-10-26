@@ -283,6 +283,18 @@ export function findBuiltinPricingCatalogEntry(
     const keyWithProviderKey = `${apiType}::${providerKey}::${modelId}`
     const keyEntry = loaded.exact.get(keyWithProviderKey)
     if (keyEntry) return clonePricingEntry(keyEntry)
+
+    // Custom platform instances (openrouter:<suffix>) often store short
+    // OpenAI-compatible ids (gpt-image-2) while the builtin catalog uses
+    // namespaced OpenRouter ids (openai/gpt-image-2). Prefer a unique suffix
+    // match within the base provider over failing as not_configured.
+    const suffix = `/${modelId}`
+    const suffixMatches = loaded.entries.filter((candidate) => (
+      candidate.apiType === apiType
+      && candidate.provider === providerKey
+      && (candidate.modelId === modelId || candidate.modelId.endsWith(suffix))
+    ))
+    if (suffixMatches.length === 1) return clonePricingEntry(suffixMatches[0])
   }
 
   return null

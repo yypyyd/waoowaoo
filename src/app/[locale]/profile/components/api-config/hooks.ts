@@ -42,6 +42,8 @@ interface UseProvidersReturn {
     saveError: ApiConfigSaveError | null
     flushConfig: () => Promise<void>
     updateProviderApiKey: (providerId: string, apiKey: string) => void
+    updateProviderBaseUrl: (providerId: string, baseUrl: string) => void
+    addProvider: (input: { name: string; baseUrl?: string; apiKey?: string }) => string
     reorderProviders: (activeProviderId: string, overProviderId: string) => void
     deleteProvider: (providerId: string) => void
     selectSlotModel: (type: UnifiedModelType, modelKey: string) => void
@@ -165,6 +167,56 @@ export function useProviders(): UseProvidersReturn {
             latestProvidersRef.current = settled
             setProviders(settled)
         })
+    }, [performSave])
+
+    const updateProviderBaseUrl = useCallback((providerId: string, rawBaseUrl: string) => {
+        const previousProvider = latestProvidersRef.current.find((provider) => provider.id === providerId)
+        if (!previousProvider) return
+        const baseUrl = rawBaseUrl.trim() || undefined
+        const next = latestProvidersRef.current.map((provider) => (
+            provider.id === providerId ? { ...provider, baseUrl } : provider
+        ))
+        latestProvidersRef.current = next
+        setProviders(next)
+        void performSave().then((saved) => {
+            if (saved) return
+            const reverted = latestProvidersRef.current.map((provider) => (
+                provider.id === providerId ? previousProvider : provider
+            ))
+            latestProvidersRef.current = reverted
+            setProviders(reverted)
+        })
+    }, [performSave])
+
+    const addProvider = useCallback((input: { name: string; baseUrl?: string; apiKey?: string }) => {
+        const basePreset = latestProvidersRef.current.find((provider) => getProviderKey(provider.id) === 'openrouter')
+        const suffix = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`
+        const id = `openrouter:${suffix}`
+        const name = input.name.trim() || id
+        const baseUrl = input.baseUrl?.trim() || undefined
+        const apiKey = input.apiKey?.trim() || undefined
+        const provider: Provider = {
+            id,
+            name,
+            ...(baseUrl ? { baseUrl } : {}),
+            apiKey,
+            hasApiKey: Boolean(apiKey),
+            featured: false,
+            connectionTest: basePreset?.connectionTest ?? true,
+            modelTypes: basePreset?.modelTypes,
+        }
+        const next = [...latestProvidersRef.current, provider]
+        latestProvidersRef.current = next
+        setProviders(next)
+        void performSave().then((saved) => {
+            const settled = latestProvidersRef.current.map((candidate) => (
+                candidate.id === id ? { ...candidate, apiKey: undefined, hasApiKey: Boolean(apiKey) } : candidate
+            ))
+            const finalList = saved ? settled : latestProvidersRef.current.filter((candidate) => candidate.id !== id)
+            latestProvidersRef.current = finalList
+            setProviders(finalList)
+        })
+        return id
     }, [performSave])
 
     const reorderProviders = useCallback((activeProviderId: string, overProviderId: string) => {
@@ -340,6 +392,8 @@ export function useProviders(): UseProvidersReturn {
         saveError,
         flushConfig,
         updateProviderApiKey,
+        updateProviderBaseUrl,
+        addProvider,
         reorderProviders,
         deleteProvider,
         selectSlotModel,

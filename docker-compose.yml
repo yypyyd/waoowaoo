@@ -306,11 +306,12 @@ services:
     image: temporalio/admin-tools:1.31.2
     restart: "no"
     logging: *default-logging
+    network_mode: "service:temporal"
     depends_on:
       temporal:
         condition: service_healthy
     environment:
-      TEMPORAL_ADDRESS: temporal:7233
+      TEMPORAL_ADDRESS: 127.0.0.1:7233
       TEMPORAL_NAMESPACE: "${TEMPORAL_NAMESPACE:-waoowaoo}"
       TEMPORAL_NAMESPACE_RETENTION: "${TEMPORAL_NAMESPACE_RETENTION:-30d}"
     entrypoint: ["/bin/sh", "-ec"]
@@ -365,11 +366,12 @@ services:
     image: temporalio/admin-tools:1.31.2
     restart: "no"
     logging: *default-logging
+    network_mode: "service:temporal"
     depends_on:
       temporal-create-namespace:
         condition: service_completed_successfully
     environment:
-      TEMPORAL_ADDRESS: temporal:7233
+      TEMPORAL_ADDRESS: 127.0.0.1:7233
       TEMPORAL_NAMESPACE: "${TEMPORAL_NAMESPACE:-waoowaoo}"
       TEMPORAL_WORKER_DEPLOYMENT_NAME: "${TEMPORAL_WORKER_DEPLOYMENT_NAME:-waoowaoo}"
     entrypoint: ["/bin/sh", "-ec"]

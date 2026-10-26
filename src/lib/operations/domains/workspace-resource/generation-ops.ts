@@ -42,6 +42,7 @@ import {
   audioGenerationBatchSchema,
   generationReferenceSchema,
   imageGenerationBatchSchema,
+  stripAssetImageAspectRatio,
   videoGenerationBatchSchema,
   videoGenerationItemSchema,
   videoGenerationRevisionBatchSchema,
@@ -1117,7 +1118,9 @@ async function planNewMedia(
   assertProductionConfigurationVersion(production, request.expectedConfigurationVersion)
   const modelKey = requireProductionModel(production, mediaType === 'audio' ? 'music' : mediaType)
   const requestId = requestIdentity(ctx, operationId, request)
-  const items = request.items as readonly GenerationItem[]
+  const items = (request.items as readonly GenerationItem[]).map((item) => (
+    item.mediaType === 'image' ? stripAssetImageAspectRatio(item) : item
+  ))
   assertCanvasGenerationIntentItems(ctx.context.canvasGenerationIntent, items)
   if (items.some((item) => item.mediaType !== mediaType)) {
     throw new Error(`WORKSPACE_RESOURCE_GENERATION_MEDIA_TYPE_INVALID:${operationId}`)

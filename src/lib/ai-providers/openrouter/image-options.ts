@@ -4,6 +4,7 @@ import type { GptImage2ImageSize } from '@/lib/ai-providers/shared/gpt-image-2'
 import {
   OPENROUTER_GPT_IMAGE_2_MODEL_ID,
   OPENROUTER_IMAGE_MODEL_IDS,
+  resolveOpenRouterCatalogImageModelId,
 } from './models'
 
 export type OpenRouterImageOptions = Record<string, unknown> & {
@@ -29,7 +30,8 @@ export async function resolveOpenRouterImageInput(input: {
 }) {
   const promptText = input.prompt.trim()
   if (!promptText) throw new Error('OPENROUTER_IMAGE_PROMPT_REQUIRED')
-  if (!OPENROUTER_IMAGE_MODEL_IDS.has(input.modelId)) {
+  const catalogModelId = resolveOpenRouterCatalogImageModelId(input.modelId)
+  if (!catalogModelId || !OPENROUTER_IMAGE_MODEL_IDS.has(catalogModelId)) {
     throw new Error(`OPENROUTER_IMAGE_MODEL_UNSUPPORTED: ${input.modelId}`)
   }
   const referenceImages = await normalizeReferences(input.options.referenceImages)
@@ -40,7 +42,7 @@ export async function resolveOpenRouterImageInput(input: {
       }))
     : undefined
 
-  if (input.modelId !== OPENROUTER_GPT_IMAGE_2_MODEL_ID) {
+  if (catalogModelId !== OPENROUTER_GPT_IMAGE_2_MODEL_ID) {
     const request = {
       prompt: promptText,
       n: 1,

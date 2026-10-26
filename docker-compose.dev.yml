@@ -139,13 +139,14 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
+    network_mode: "service:temporal"
     depends_on:
       temporal-create-namespace:
         condition: service_completed_successfully
       temporal-worker-dev:
         condition: service_healthy
     environment:
-      TEMPORAL_ADDRESS: temporal:7233
+      TEMPORAL_ADDRESS: 127.0.0.1:7233
       TEMPORAL_NAMESPACE: "${TEMPORAL_NAMESPACE:-waoowaoo}"
       TEMPORAL_TASK_QUEUE: "${TEMPORAL_TASK_QUEUE:-waoowaoo-runtime}"
       TEMPORAL_WORKER_DEPLOYMENT_NAME: "${TEMPORAL_WORKER_DEPLOYMENT_NAME:-waoowaoo}"

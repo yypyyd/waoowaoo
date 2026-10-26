@@ -51,7 +51,7 @@ export const CREATIVE_RUNTIME_SKILL_REGISTRY: Readonly<
     title: '资产范围与视觉设计',
     description: '筛选和设计生产资产，形成带最终图片提示词的 asset_generation_batch 专业结果。',
     skillIds: ['creative-core', 'asset-development'],
-    executionFacts: 'The image model is fixed in settings; omit model identity and obey the current create_image tool schema. Fill its exposed options; fixed parameters are absent and supplied by the server. Every asset includes its stable creative identity, complete final prompt and user-visible name. The server owns Resource placement.',
+    executionFacts: 'The image model is fixed in settings; omit model identity and obey the current create_image tool schema. Fill required exposed options; omit options.aspectRatio for reusable assets (character/location/prop) — the server applies the fixed 4:3 asset format. Fixed parameters are absent and supplied by the server. Every asset includes its stable creative identity, complete final prompt and user-visible name. The server owns Resource placement.',
   }),
   video: defineRuntimeSkill({
     kind: 'video',

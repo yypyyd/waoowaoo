@@ -9,6 +9,7 @@ import {
   type ReasoningEffort,
 } from '@/lib/ai-registry/reasoning-effort'
 import { resolveBuiltinCapabilitiesByModelKey } from '@/lib/ai-registry/capabilities-catalog'
+import { parseModelKeyStrict } from '@/lib/ai-registry/selection'
 
 /**
  * `utility` covers short mechanical LLM work that is not the Primary Agent and
@@ -43,7 +44,13 @@ export async function resolveReasoningEffort(input: {
   ensureAiCatalogsRegistered()
 
   const capabilities = resolveBuiltinCapabilitiesByModelKey('llm', input.modelKey)?.llm
-  if (!capabilities) throw new Error(`LLM_CAPABILITIES_REQUIRED:${input.modelKey}`)
+  if (!capabilities) {
+    // Custom platform instances (openrouter:<suffix>) carry user-defined model
+    // ids outside the builtin catalog; skip reasoning effort negotiation.
+    const provider = parseModelKeyStrict(input.modelKey)?.provider ?? ''
+    if (provider.includes(':')) return 'none'
+    throw new Error(`LLM_CAPABILITIES_REQUIRED:${input.modelKey}`)
+  }
   if (!capabilities.reasoningEffortOptions?.length) return 'none'
   const modelDefault = parseReasoningEffort(
     capabilities.defaultReasoningEffort,

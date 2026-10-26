@@ -19,7 +19,7 @@ function describeOpenRouterMediaVariant(
     modality,
     selection,
     executionMode: modality === 'image' ? 'sync' : 'async',
-    optionSchema: resolveOpenRouterOptionSchema(modality, selection.modelId),
+    optionSchema: resolveOpenRouterOptionSchema(modality, selection.modelId, selection.provider),
   })
 }
 

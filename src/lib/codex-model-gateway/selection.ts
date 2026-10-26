@@ -1,6 +1,7 @@
 import { findBuiltinCapabilities } from '@/lib/ai-registry/capabilities-catalog'
 import { ensureAiCatalogsRegistered } from '@/lib/ai-exec/catalog-bootstrap'
 import { resolveLlmRuntimeModel } from '@/lib/ai-exec/llm-runtime'
+import { getProviderKey } from '@/lib/ai-registry/selection'
 import { getUserModelConfig } from '@/lib/config-service'
 import { getProviderConfig } from '@/lib/user-api/runtime-config'
 import { verifyWaoRuntimeToken } from '@/lib/wao-mcp/runtime-token'
@@ -98,23 +99,28 @@ async function resolveSelectedAssistantModel(scope: CodexModelGatewayScope) {
   } catch {
     throw new CodexModelGatewayError('ASSISTANT_MODEL_UNSUPPORTED', 422)
   }
-  if (selection.provider !== 'openrouter') {
+  if (getProviderKey(selection.provider) !== 'openrouter') {
     throw new CodexModelGatewayError(
       'PROVIDER_RESPONSES_UNSUPPORTED',
       422,
     )
   }
   ensureAiCatalogsRegistered()
-  const codexRuntimeWireApi = findBuiltinCapabilities(
-    'llm',
-    selection.provider,
-    selection.modelId,
-  )?.llm?.codexRuntimeWireApi
-  if (codexRuntimeWireApi !== 'responses') {
-    throw new CodexModelGatewayError(
-      'PROVIDER_RESPONSES_UNSUPPORTED',
-      422,
-    )
+  // Custom platform instances (openrouter:<suffix>) carry user-defined model ids
+  // outside the builtin catalog; assume the OpenAI-compatible responses API and
+  // let upstream surface any incompatibility at call time.
+  if (!selection.provider.includes(':')) {
+    const codexRuntimeWireApi = findBuiltinCapabilities(
+      'llm',
+      selection.provider,
+      selection.modelId,
+    )?.llm?.codexRuntimeWireApi
+    if (codexRuntimeWireApi !== 'responses') {
+      throw new CodexModelGatewayError(
+        'PROVIDER_RESPONSES_UNSUPPORTED',
+        422,
+      )
+    }
   }
 
   let providerConfig: Awaited<ReturnType<typeof getProviderConfig>>

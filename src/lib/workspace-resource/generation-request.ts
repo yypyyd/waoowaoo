@@ -80,7 +80,22 @@ const textList = (maxItems: number, maxLength: number) => z.array(
   z.string().trim().min(1).max(maxLength),
 ).max(maxItems)
 
-export const imageGenerationItemSchema = z.object({
+/**
+ * Reusable asset images use a server-owned fixed format (4:3). Agents sometimes
+ * still send options.aspectRatio because the shared create_image tool also
+ * serves ordinary images — drop it so validation matches regeneration-projection.
+ */
+export function stripAssetImageAspectRatio<T extends {
+  readonly assetKind?: string | null
+  readonly options?: { readonly aspectRatio?: string } & Record<string, unknown>
+}>(item: T): T {
+  if (item.assetKind == null || item.options?.aspectRatio === undefined) return item
+  const { aspectRatio: _omit, ...rest } = item.options
+  const options = Object.keys(rest).length > 0 ? rest : undefined
+  return { ...item, options } as T
+}
+
+const imageGenerationItemObjectSchema = z.object({
   ...commonItemShape,
   mediaType: z.literal('image'),
   options: imageParametersSchema.optional(),
@@ -112,10 +127,16 @@ export const imageGenerationItemSchema = z.object({
   if (item.assetKind === null && assetSchemaIds.includes(item.schemaId)) {
     context.addIssue({ code: 'custom', path: ['assetKind'], message: 'assetKind is required for a reusable asset image schema.' })
   }
-  if (item.assetKind !== null && item.options?.aspectRatio !== undefined) {
-    context.addIssue({ code: 'custom', path: ['options', 'aspectRatio'], message: 'Asset images use the fixed asset format; omit aspectRatio.' })
-  }
 })
+
+/**
+ * Canonical item schema for create_image / JSON Schema projection.
+ * Do NOT attach .transform() here: z.toJSONSchema (creative skills and tool
+ * projection) cannot represent transforms unless every caller passes io:"input",
+ * and creativeOutputJsonSchema historically did not. Strip asset aspectRatio
+ * via stripAssetImageAspectRatio after parse instead.
+ */
+export const imageGenerationItemSchema = imageGenerationItemObjectSchema
 
 export const audioGenerationItemSchema = musicScoreCueRequestSchema.safeExtend({
   ...commonItemShape,
@@ -200,7 +221,7 @@ export type GenerationItem =
   | z.infer<typeof audioGenerationItemSchema>
   | z.infer<typeof videoGenerationItemSchema>
 
-const assetGenerationItemSchema = imageGenerationItemSchema.safeExtend({
+const assetGenerationItemSchema = imageGenerationItemObjectSchema.safeExtend({
   assetKind: z.enum(['character', 'location', 'prop']),
   aliases: textList(64, 300),
   stableDescription: z.string().trim().min(1).max(16_000),
@@ -255,3 +276,10 @@ export const audioGenerationBatchOutputSchema = z.object({
   }
   validateGenerationItems(batch, context)
 })
+
+export function normalizeImageGenerationItems<T extends {
+  readonly assetKind?: string | null
+  readonly options?: { readonly aspectRatio?: string } & Record<string, unknown>
+}>(items: readonly T[]): T[] {
+  return items.map((item) => stripAssetImageAspectRatio(item))
+}

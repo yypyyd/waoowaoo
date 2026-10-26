@@ -3,6 +3,7 @@ import { creativeDirectionSchema } from '@/lib/creative-direction/contracts'
 import {
   assetGenerationBatchOutputSchema,
   audioGenerationBatchOutputSchema,
+  stripAssetImageAspectRatio,
   videoGenerationBatchOutputSchema,
 } from '@/lib/workspace-resource/generation-request'
 import {
@@ -130,15 +131,30 @@ export function readCreativeOutputDefinition(outputKind: CreativeOutputKind): Cr
 }
 
 export function creativeOutputJsonSchema(outputKind: CreativeOutputKind): Record<string, unknown> {
-  return z.toJSONSchema(readCreativeOutputDefinition(outputKind).schema) as Record<string, unknown>
+  // io:"input" so any future Zod effects/transforms stay representable; never
+  // project output-side transforms into skill prompt JSON Schema.
+  return z.toJSONSchema(readCreativeOutputDefinition(outputKind).schema, {
+    target: 'draft-7',
+    io: 'input',
+  }) as Record<string, unknown>
+}
+
+function normalizeCreativeOutput(parsed: CreativeOutput): CreativeOutput {
+  if (parsed.outputKind !== 'asset_generation_batch') return parsed
+  return {
+    ...parsed,
+    items: parsed.items.map((item) => stripAssetImageAspectRatio(item)),
+  }
 }
 
 export function parseCreativeOutput(value: unknown): CreativeOutput {
-  return creativeOutputSchema.parse(value)
+  return normalizeCreativeOutput(creativeOutputSchema.parse(value))
 }
 
 export function safeParseCreativeOutput(value: unknown): ReturnType<typeof creativeOutputSchema.safeParse> {
-  return creativeOutputSchema.safeParse(value)
+  const parsed = creativeOutputSchema.safeParse(value)
+  if (!parsed.success) return parsed
+  return { ...parsed, data: normalizeCreativeOutput(parsed.data) }
 }
 
 export function readCreativeOutputKind(value: unknown): CreativeOutputKind | null {

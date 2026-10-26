@@ -390,6 +390,31 @@ export async function persistOperationPlanSnapshot(params: {
   }
 }
 
+
+export async function replaceOperationPlanSnapshotArtifacts(params: {
+  readonly snapshotId: string
+  readonly plan: OperationPlan
+  readonly quote: BillingQuoteView
+  readonly client?: Prisma.TransactionClient
+}): Promise<PersistedOperationPlanSnapshot> {
+  const client = params.client ?? prisma
+  assertOperationPlanTaskResourceScopes(params.plan)
+  await assertOperationPlanTaskDependencies(params.plan)
+  const planSnapshot = toInputJson(params.plan)
+  const quoteSnapshot = toInputJson(params.quote)
+  const planHash = hashCanonicalJson(params.plan)
+  const quoteHash = hashCanonicalJson(params.quote)
+  const updated = await client.operationPlanSnapshot.update({
+    where: { id: params.snapshotId },
+    data: {
+      planSnapshot,
+      planHash,
+      quoteSnapshot,
+      quoteHash,
+    },
+  })
+  return parsePersistedOperationPlanSnapshot(updated)
+}
 type OperationPlanSnapshotReader = Pick<Prisma.TransactionClient, 'operationPlanSnapshot'>
 
 export async function loadOperationPlanSnapshot(

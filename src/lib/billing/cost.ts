@@ -3,9 +3,11 @@ import {
   resolveBuiltinPricing,
   type PricingResolution,
 } from '@/lib/ai-registry/pricing-resolution'
+import { parseModelKeyStrict } from '@/lib/ai-registry/selection'
 import type { CapabilityValue } from '@/lib/ai-registry/types'
 import { resolveImageSizeFromGenerationOptions } from '@/lib/image-generation/runtime-options'
 import { BillingOperationError } from './errors'
+import { getBootBillingEnabled } from './mode'
 
 export type ApiType = 'text' | 'image' | 'video' | 'music' | 'voice'
 export type UsageUnit = 'token' | 'image' | 'video' | 'second' | 'call' | 'character'
@@ -121,6 +123,32 @@ function throwPricingResolutionError(
  * Billing only ever reads the retail face — the cost face exists for margin
  * reporting and never reaches a user-facing amount.
  */
+/**
+ * When BILLING_MODE is not ENFORCE (self-hosted/local OFF or SHADOW), custom
+ * provider models often have no SaaS catalog price. Quote them at zero instead
+ * of blocking generation with BILLING_UNKNOWN_MODEL.
+ */
+function resolveZeroLocalPricing(input: {
+  apiType: ApiType
+  model: string
+}): Extract<PricingResolution, { status: 'resolved' }> {
+  const parsed = parseModelKeyStrict(input.model)
+  return {
+    status: 'resolved',
+    entry: {
+      apiType: input.apiType,
+      provider: parsed?.provider ?? 'local',
+      modelId: parsed?.modelId ?? input.model,
+      cost: { mode: 'flat', flatAmount: 0 },
+      retail: { mode: 'flat', flatAmount: 0 },
+    },
+    amount: 0,
+    face: 'retail',
+    mode: 'flat',
+    unit: 'per_call',
+  }
+}
+
 function resolveCatalogPricing(input: {
   apiType: ApiType
   model: string
@@ -134,6 +162,19 @@ function resolveCatalogPricing(input: {
     selections: input.selections,
   })
   if (resolution.status === 'resolved') return resolution
+
+  const parsed = parseModelKeyStrict(input.model)
+  const isCustomPlatformInstance = Boolean(parsed?.provider.includes(':'))
+  if (
+    !getBootBillingEnabled()
+    && (
+      resolution.status === 'not_configured'
+      || (isCustomPlatformInstance && resolution.status === 'missing_capability_match')
+    )
+  ) {
+    return resolveZeroLocalPricing(input)
+  }
+
   return throwPricingResolutionError(input.apiType, input.model, resolution)
 }
 
@@ -212,6 +253,9 @@ export function calcTextToolCalls(model: string, toolCalls: number): number {
   })
   if (resolution.status === 'missing_capability_match') return 0
   if (resolution.status !== 'resolved') {
+    if (!getBootBillingEnabled() && resolution.status === 'not_configured') {
+      return 0
+    }
     return throwPricingResolutionError('text', model, resolution)
   }
   return roundCredits((normalizedToolCalls / 1_000_000) * resolution.amount)

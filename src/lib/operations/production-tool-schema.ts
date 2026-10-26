@@ -45,14 +45,32 @@ function projectConfiguredModel(
     const choices: JsonObject = Object.fromEntries(parameters
       .filter(({ field }) => context.fixedParameters[model.model]?.[field] === undefined)
       .map(({ field, options }) => [field, enumSchema(options)]))
+    // Image create_image serves both ordinary frames and fixed-format asset
+    // images. Asset items must omit aspectRatio (server applies 4:3); ordinary
+    // items may omit it to inherit the project frame. Never require it for
+    // image models — requiring it baited agents into failing asset validation.
+    // Video keeps aspectRatio required so the agent always picks an explicit frame.
+    const videoLocksAspectRatio = 'allowedSegmentDurationsSeconds' in model
     if (originalOptions.properties.aspectRatio !== undefined && 'aspectRatios' in model && model.aspectRatios.length > 0) {
-      choices.aspectRatio = enumSchema(model.aspectRatios)
+      const originalAspect = originalOptions.properties.aspectRatio
+      const description = isObject(originalAspect) && typeof originalAspect.description === 'string'
+        ? originalAspect.description
+        : videoLocksAspectRatio
+          ? 'W:H frame ratio for this item.'
+          : 'Optional W:H frame ratio for this item. Omit to use the project frame. Fixed-format asset images (character/location/prop) must omit it; the server applies the asset format.'
+      choices.aspectRatio = { ...enumSchema(model.aspectRatios), description }
     }
     if (Object.keys(choices).length === 0) delete properties.options
-    else properties.options = {
-      type: 'object', properties: choices,
-      required: Object.keys(choices), additionalProperties: false,
-      description: 'Select every exposed parameter for this item. Fixed parameters are applied by the server and are not input fields.',
+    else {
+      const required = Object.keys(choices).filter((key) => videoLocksAspectRatio || key !== 'aspectRatio')
+      properties.options = {
+        type: 'object', properties: choices,
+        required,
+        additionalProperties: false,
+        description: videoLocksAspectRatio
+          ? 'Select every exposed parameter for this item. Fixed parameters are applied by the server and are not input fields.'
+          : 'Fill every required exposed parameter for this item. aspectRatio is optional: omit to use the project frame, and always omit it for reusable asset images (character/location/prop); the server applies the fixed asset format. Fixed parameters are applied by the server and are not input fields.',
+      }
     }
   }
   if ('allowedSegmentDurationsSeconds' in model) {

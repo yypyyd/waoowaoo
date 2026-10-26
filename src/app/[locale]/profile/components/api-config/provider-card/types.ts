@@ -15,6 +15,7 @@ export interface ProviderCardProps {
   expanded: boolean
   onExpandChange: (expanded: boolean) => void
   onUpdateApiKey: (providerId: string, apiKey: string) => void
+  onUpdateBaseUrl: (providerId: string, baseUrl: string) => void
   onDeleteModel: (modelKey: string) => void
   onUpdateModel?: (modelKey: string, updates: Partial<CustomModel>) => void
   onDeleteProvider?: (providerId: string) => void

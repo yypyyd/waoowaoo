@@ -22,6 +22,7 @@ interface UseProviderCardStateParams {
   allModels?: ProviderCardProps['allModels']
   defaultModels: ProviderCardProps['defaultModels']
   onUpdateApiKey: ProviderCardProps['onUpdateApiKey']
+  onUpdateBaseUrl: ProviderCardProps['onUpdateBaseUrl']
   onUpdateModel: ProviderCardProps['onUpdateModel']
   onAddModel: ProviderCardProps['onAddModel']
   t: ProviderCardTranslator
@@ -52,6 +53,8 @@ export interface UseProviderCardStateResult {
   groupedModels: ProviderCardGroupedModels
   isEditing: boolean
   tempKey: string
+  isEditingBaseUrl: boolean
+  tempBaseUrl: string
   showTutorial: boolean
   showAddForm: ProviderCardModelType | null
   newModel: ModelFormState
@@ -67,6 +70,10 @@ export interface UseProviderCardStateResult {
   startEditKey: () => void
   handleSaveKey: () => void
   handleCancelEdit: () => void
+  startEditBaseUrl: () => void
+  setTempBaseUrl: (value: string) => void
+  handleSaveBaseUrl: () => void
+  handleCancelEditBaseUrl: () => void
   handleEditModel: (model: CustomModel) => void
   handleCancelEditModel: () => void
   handleSaveModel: (originalModelKey: string) => Promise<void>
@@ -81,6 +88,7 @@ export function useProviderCardState({
   allModels,
   defaultModels,
   onUpdateApiKey,
+  onUpdateBaseUrl,
   onUpdateModel,
   onAddModel,
   t,
@@ -88,6 +96,8 @@ export function useProviderCardState({
   const { showToast } = useToast()
   const [isEditing, setIsEditing] = useState(false)
   const [tempKey, setTempKey] = useState(provider.apiKey || '')
+  const [isEditingBaseUrl, setIsEditingBaseUrl] = useState(false)
+  const [tempBaseUrl, setTempBaseUrl] = useState(provider.baseUrl || '')
   const [showTutorial, setShowTutorial] = useState(false)
   const [showAddForm, setShowAddForm] = useState<ProviderCardModelType | null>(null)
   const [newModel, setNewModel] = useState<ModelFormState>(EMPTY_MODEL_FORM)
@@ -129,6 +139,33 @@ export function useProviderCardState({
   const handleCancelEdit = () => {
     setTempKey('')
     setIsEditing(false)
+  }
+
+  const startEditBaseUrl = () => {
+    setTempBaseUrl(provider.baseUrl || '')
+    setIsEditingBaseUrl(true)
+  }
+
+  const handleSaveBaseUrl = () => {
+    const value = tempBaseUrl.trim()
+    if (value) {
+      try {
+        const parsed = new URL(value)
+        if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+          throw new Error('PROTOCOL_INVALID')
+        }
+      } catch {
+        showToast(t('baseUrlInvalid'), 'warning')
+        return
+      }
+    }
+    onUpdateBaseUrl(provider.id, value)
+    setIsEditingBaseUrl(false)
+  }
+
+  const handleCancelEditBaseUrl = () => {
+    setTempBaseUrl(provider.baseUrl || '')
+    setIsEditingBaseUrl(false)
   }
 
   const handleEditModel = (model: CustomModel) => {
@@ -221,6 +258,8 @@ export function useProviderCardState({
     groupedModels,
     isEditing,
     tempKey,
+    isEditingBaseUrl,
+    tempBaseUrl,
     showTutorial,
     showAddForm,
     newModel,
@@ -236,6 +275,10 @@ export function useProviderCardState({
     startEditKey,
     handleSaveKey,
     handleCancelEdit,
+    startEditBaseUrl,
+    setTempBaseUrl,
+    handleSaveBaseUrl,
+    handleCancelEditBaseUrl,
     handleEditModel,
     handleCancelEditModel,
     handleSaveModel,

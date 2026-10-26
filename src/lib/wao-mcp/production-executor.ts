@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto'
 import { ApiError } from '@/lib/api-errors'
+import { prisma } from '@/lib/prisma'
 import { createScopedLogger } from '@/lib/logging/core'
 import { normalizeOperationExecutionToolError } from '@/lib/adapters/operation-error-normalizer'
 import { formatBillingActionCost } from '@/lib/billing/action-quote-preview'
@@ -21,10 +22,17 @@ import { prepareProjectAgentOperationInput } from '@/lib/operations/invocation'
 import { parseOperationMutationReceipt } from '@/lib/operations/mutation-receipt'
 import { createProjectAgentOperationRegistry } from '@/lib/operations/registry'
 import type { PlannedOperationInvocation } from '@/lib/operations/planned-operation-invocation'
-import { loadOperationPlanSnapshotByApiRequest } from '@/lib/operations/operation-plan-snapshot'
+import {
+  hashOperationPlanArtifacts,
+  loadOperationPlanSnapshotByApiRequest,
+  replaceOperationPlanSnapshotArtifacts,
+} from '@/lib/operations/operation-plan-snapshot'
+import { getBillingMode } from '@/lib/billing'
+import { changedOperationPlanArtifacts } from '@/lib/operations/operation-plan-revalidation'
 import {
   persistOperationPlanView,
   planOperation,
+  quoteOperationPlan,
 } from '@/lib/operations/planning'
 import type { OperationPlanView } from '@/lib/operations/plan-contract'
 import {
@@ -377,24 +385,64 @@ async function authorizeBillableOperation(params: {
     normalizedInput: prepared.input,
     apiRequestContext,
   })
-  const view = replay
-    ? projectPersistedPlanView(replay)
-    : await (async (): Promise<OperationPlanView> => {
-        await params.assertAuthorized()
-        const plan = await planOperation({
-          operation: params.operation,
-          ctx: params.trusted.operationContext,
-          input: prepared.input,
+  const view = await (async (): Promise<OperationPlanView> => {
+    if (replay) {
+      await params.assertAuthorized()
+      const plan = await planOperation({
+        operation: params.operation,
+        ctx: params.trusted.operationContext,
+        input: prepared.input,
+      })
+      await params.assertAuthorized()
+      const quote = await quoteOperationPlan(plan)
+      const current = hashOperationPlanArtifacts({
+        normalizedInput: prepared.input,
+        plan,
+        quote,
+      })
+      const changedArtifacts = changedOperationPlanArtifacts(replay, current)
+      if (changedArtifacts.length === 0) {
+        return projectPersistedPlanView(replay)
+      }
+      const billingMode = await getBillingMode()
+      if (billingMode === 'ENFORCE') {
+        throw new ApiError('OPERATION_PLAN_CHANGED', {
+          code: 'OPERATION_PLAN_CHANGED',
+          changedArtifacts,
         })
-        await params.assertAuthorized()
-        return await persistOperationPlanView({
-          plan,
-          executionContractRevision: planContractRevision,
-          normalizedInput: prepared.input,
-          apiRequestId: approvalRequestId,
-          apiRequestContext,
-        })
-      })()
+      }
+      // OFF/SHADOW: refresh the idempotent snapshot so retries after schema or
+      // pricing alias changes do not loop on a stale frozen quote.
+      const refreshed = await replaceOperationPlanSnapshotArtifacts({
+        snapshotId: replay.id,
+        plan,
+        quote,
+      })
+      // Drop unused grants bound to the old fingerprint so the next issue
+      // writes hashes that match the refreshed snapshot.
+      await prisma.approvalGrant.deleteMany({
+        where: {
+          planSnapshotId: refreshed.id,
+          consumedAt: null,
+        },
+      })
+      return projectPersistedPlanView(refreshed)
+    }
+    await params.assertAuthorized()
+    const plan = await planOperation({
+      operation: params.operation,
+      ctx: params.trusted.operationContext,
+      input: prepared.input,
+    })
+    await params.assertAuthorized()
+    return await persistOperationPlanView({
+      plan,
+      executionContractRevision: planContractRevision,
+      normalizedInput: prepared.input,
+      apiRequestId: approvalRequestId,
+      apiRequestContext,
+    })
+  })()
   if (!view.planSnapshotId) {
     throw new Error(`WAO_MCP_OPERATION_PLAN_ID_MISSING:${params.operation.id}`)
   }

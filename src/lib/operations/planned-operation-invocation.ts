@@ -8,12 +8,17 @@ import {
   type ProjectAgentOperationContext,
   type ProjectAgentOperationDefinition,
 } from './types'
-import { loadOperationPlanSnapshot } from './operation-plan-snapshot'
+import {
+  loadOperationPlanSnapshot,
+  replaceOperationPlanSnapshotArtifacts,
+} from './operation-plan-snapshot'
 import { hashCanonicalJson } from '@/lib/operation-plan-contract/canonical-json'
 import {
-  buildCurrentOperationPlanArtifactHashes,
+  buildCurrentOperationPlanArtifacts,
   changedOperationPlanArtifacts,
 } from './operation-plan-revalidation'
+import { getBillingMode } from '@/lib/billing'
+import type { OperationPlan } from './plan-contract'
 import { GLOBAL_ASSET_PROJECT_ID } from '@/lib/workspace-resource/resource-impact'
 import { schedulePersistedTask } from '@/lib/temporal/task-client'
 import type { PersistedTaskReference, ScheduledTaskReceipt } from '@/lib/temporal/task/contracts'
@@ -194,17 +199,29 @@ export async function issueApprovalGrantGroupInTransaction(
       if (
         existing.userId !== params.userId
         || existing.requestId !== request.requestId
-        || existing.revokedAt
       ) {
         throw new ApiError('CONFLICT', { code: 'APPROVAL_GRANT_NOT_USABLE' })
       }
-      issued.push({
-        planSnapshotId: snapshot.id,
-        operationId: snapshot.operationId,
-        approvalGrantId: existing.id,
-        requestId: existing.requestId,
-      })
-      continue
+      // Revoked grants (plan/price drift) must not dead-end local OFF/SHADOW
+      // retries that reuse the same apiRequestId/snapshot after a refresh.
+      if (existing.revokedAt) {
+        if (existing.consumedAt || existing.consumedExecutionId) {
+          throw new ApiError('CONFLICT', { code: 'APPROVAL_GRANT_NOT_USABLE' })
+        }
+        const billingMode = await getBillingMode()
+        if (billingMode === 'ENFORCE') {
+          throw new ApiError('CONFLICT', { code: 'APPROVAL_GRANT_NOT_USABLE' })
+        }
+        await tx.approvalGrant.delete({ where: { id: existing.id } })
+      } else {
+        issued.push({
+          planSnapshotId: snapshot.id,
+          operationId: snapshot.operationId,
+          approvalGrantId: existing.id,
+          requestId: existing.requestId,
+        })
+        continue
+      }
     }
     const grant = await tx.approvalGrant.create({
       data: {
@@ -455,7 +472,7 @@ export async function invokeApprovedOperationPlan<Input, Output>(params: {
   const currentArtifacts =
     existingExecution || executionContractChanged
       ? null
-      : await buildCurrentOperationPlanArtifactHashes({
+      : await buildCurrentOperationPlanArtifacts({
           operation: params.operation,
           ctx: params.ctx,
           normalizedInput: params.normalizedInput,
@@ -529,12 +546,36 @@ export async function invokeApprovedOperationPlan<Input, Output>(params: {
         throw new Error(`OPERATION_PLAN_REVALIDATION_MISSING:${grant.id}`)
       }
       const changedArtifacts = changedOperationPlanArtifacts(snapshot, currentArtifacts)
+      let activePlan: OperationPlan = snapshot.plan
       if (changedArtifacts.length > 0) {
-        await settleApprovalGrant(tx, {
-          kind: 'revoke',
-          grantId: grant.id,
+        const billingMode = await getBillingMode()
+        if (billingMode === 'ENFORCE') {
+          await settleApprovalGrant(tx, {
+            kind: 'revoke',
+            grantId: grant.id,
+          })
+          return { kind: 'plan_changed' as const, changedArtifacts }
+        }
+        // Local OFF/SHADOW: provider schema/pricing aliases can shift the
+        // recomputed plan after a quote was frozen. Refresh the snapshot and
+        // grant fingerprints in place so generation can proceed instead of
+        // looping on OPERATION_PLAN_CHANGED.
+        const refreshed = await replaceOperationPlanSnapshotArtifacts({
+          snapshotId: snapshot.id,
+          plan: currentArtifacts.plan,
+          quote: currentArtifacts.quote,
+          client: tx,
         })
-        return { kind: 'plan_changed' as const, changedArtifacts }
+        await tx.approvalGrant.update({
+          where: { id: grant.id },
+          data: {
+            planHash: refreshed.planHash,
+            quoteHash: refreshed.quoteHash,
+            quoteCeiling: refreshed.quote.totalMaxFrozenCost ?? null,
+            currency: refreshed.quote.currency ?? null,
+          },
+        })
+        activePlan = refreshed.plan
       }
 
       const execution = await tx.operationExecution.create({
@@ -568,7 +609,7 @@ export async function invokeApprovedOperationPlan<Input, Output>(params: {
           },
         },
         params.normalizedInput,
-        snapshot.plan,
+        activePlan,
       )
 
       const parsedOutput = params.operation.outputSchema.safeParse(committedOutput)
@@ -590,14 +631,14 @@ export async function invokeApprovedOperationPlan<Input, Output>(params: {
       if (
         !consumedGrant?.consumedAt ||
         consumedGrant.consumedExecutionId !== execution.id ||
-        tasks.length !== snapshot.plan.tasks.length
+        tasks.length !== activePlan.tasks.length
       ) {
         throw new Error(`OPERATION_PLAN_ATOMIC_COMMIT_INCOMPLETE:${execution.id}`)
       }
       const followUpTaskIds = Array.from(
         new Set([
           ...tasks.map((task) => task.id),
-          ...(snapshot.plan.taskDependencies ?? []).map((dependency) => dependency.taskId),
+          ...(activePlan.taskDependencies ?? []).map((dependency) => dependency.taskId),
         ]),
       ).sort()
       if (followUpTaskIds.length > 0) {

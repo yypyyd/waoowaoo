@@ -44,7 +44,8 @@ export function useApiConfigFilters({ providers, models, defaultModels }: UseApi
 
   const modelProviders = useMemo(() => {
     const modelProviderIds = new Set(models.map((model) => model.provider))
-    return providers.filter((provider) => modelProviderIds.has(provider.id))
+    // Custom platform instances stay visible before their first model is added.
+    return providers.filter((provider) => modelProviderIds.has(provider.id) || provider.id.includes(':'))
   }, [models, providers])
 
   /** Every model of a type, providers holding a key first so the pickable ones lead. */

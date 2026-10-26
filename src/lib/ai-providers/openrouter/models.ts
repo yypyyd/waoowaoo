@@ -15,6 +15,7 @@ import {
 import { buildGptImage2OptionSchema } from '@/lib/ai-providers/shared/gpt-image-2'
 import { SEEDANCE_2_RETAIL_CREDITS_PER_SECOND } from '@/lib/ai-providers/shared/seedance-pricing'
 import { usdToCredits } from '@/lib/ai-registry/pricing-currency'
+import { ASPECT_RATIO_CONFIGS } from '@/lib/constants'
 import type { ReasoningEffort } from '@/lib/ai-registry/reasoning-effort'
 import {
   OPENROUTER_SEEDREAM_5_PRO_MODEL_ID,
@@ -78,6 +79,23 @@ export const OPENROUTER_IMAGE_MODEL_IDS = new Set([
   OPENROUTER_BANANA_2_IMAGE_MODEL_ID,
   OPENROUTER_BANANA_2_LITE_IMAGE_MODEL_ID,
 ])
+
+/**
+ * Custom openrouter:<suffix> instances often store short OpenAI-compatible ids
+ * (gpt-image-2) while the catalog uses namespaced OpenRouter ids
+ * (openai/gpt-image-2). Map a unique short/suffix form onto the catalog id.
+ */
+export function resolveOpenRouterCatalogImageModelId(
+  modelId: string | undefined,
+): string | undefined {
+  if (!modelId) return undefined
+  if (OPENROUTER_IMAGE_MODEL_IDS.has(modelId)) return modelId
+  const suffix = `/${modelId}`
+  const matches = [...OPENROUTER_IMAGE_MODEL_IDS].filter(
+    (candidate) => candidate === modelId || candidate.endsWith(suffix),
+  )
+  return matches.length === 1 ? matches[0] : undefined
+}
 
 export const OPENROUTER_GPT_5_6_REASONING_EFFORT_OPTIONS = [
   'medium',
@@ -552,9 +570,20 @@ export const OPENROUTER_PLATFORM_MODEL_PRESETS = [
   })),
 ] as const satisfies ReadonlyArray<PlatformModelPreset>
 
-export function resolveOpenRouterOptionSchema(modality: MediaModality, modelId?: string): AiOptionSchema {
+/**
+ * Resolves the option schema for an OpenRouter media variant. `providerId` may be
+ * an instantiated identity (openrouter:<suffix>) backing a user-added platform:
+ * those accept arbitrary OpenAI-compatible model ids, so unknown models fall
+ * back to a generic schema instead of failing the catalog whitelist.
+ */
+export function resolveOpenRouterOptionSchema(
+  modality: MediaModality,
+  modelId?: string,
+  providerId?: string,
+): AiOptionSchema {
   if (modality === 'image') {
-    if (modelId === OPENROUTER_GPT_IMAGE_2_MODEL_ID) {
+    const catalogModelId = resolveOpenRouterCatalogImageModelId(modelId) ?? modelId
+    if (catalogModelId === OPENROUTER_GPT_IMAGE_2_MODEL_ID) {
       return buildGptImage2OptionSchema({
         resolutionOptions: OPENROUTER_GPT_IMAGE_2_RESOLUTION_OPTIONS,
         aspectRatioOptions: OPENROUTER_GPT_IMAGE_2_ASPECT_RATIO_OPTIONS,
@@ -580,28 +609,36 @@ export function resolveOpenRouterOptionSchema(modality: MediaModality, modelId?:
       })
     }
 
-    const imagePolicy = modelId === OPENROUTER_BANANA_PRO_IMAGE_MODEL_ID
+    const imagePolicy = catalogModelId === OPENROUTER_BANANA_PRO_IMAGE_MODEL_ID
       ? {
           resolutionOptions: OPENROUTER_BANANA_PRO_RESOLUTION_OPTIONS,
           aspectRatioOptions: OPENROUTER_BANANA_PRO_ASPECT_RATIO_OPTIONS,
         }
-      : modelId === OPENROUTER_BANANA_2_IMAGE_MODEL_ID
+      : catalogModelId === OPENROUTER_BANANA_2_IMAGE_MODEL_ID
         ? {
             resolutionOptions: OPENROUTER_BANANA_2_RESOLUTION_OPTIONS,
             aspectRatioOptions: OPENROUTER_BANANA_2_ASPECT_RATIO_OPTIONS,
           }
-        : modelId === OPENROUTER_BANANA_2_LITE_IMAGE_MODEL_ID
+        : catalogModelId === OPENROUTER_BANANA_2_LITE_IMAGE_MODEL_ID
           ? {
               resolutionOptions: OPENROUTER_BANANA_2_LITE_RESOLUTION_OPTIONS,
               aspectRatioOptions: OPENROUTER_BANANA_2_ASPECT_RATIO_OPTIONS,
             }
-          : modelId === OPENROUTER_SEEDREAM_5_PRO_MODEL_ID
+          : catalogModelId === OPENROUTER_SEEDREAM_5_PRO_MODEL_ID
             ? {
                 resolutionOptions: OPENROUTER_SEEDREAM_5_PRO_RESOLUTIONS,
                 aspectRatioOptions: OPENROUTER_SEEDREAM_5_PRO_RATIOS,
               }
             : null
-    if (!imagePolicy || !modelId) {
+    if (!imagePolicy || !catalogModelId) {
+      if (providerId && providerId.includes(':')) {
+        return buildMediaOptionSchema('image', {
+          required: ['aspectRatio'],
+          validators: {
+            aspectRatio: enumValidator(Object.keys(ASPECT_RATIO_CONFIGS)),
+          },
+        })
+      }
       throw new Error(`OPENROUTER_OPTION_SCHEMA_UNSUPPORTED_IMAGE_MODEL:${modelId || '<missing>'}`)
     }
     return buildMediaOptionSchema('image', {
@@ -616,8 +653,8 @@ export function resolveOpenRouterOptionSchema(modality: MediaModality, modelId?:
       validators: {
         aspectRatio: enumValidator(imagePolicy.aspectRatioOptions),
         resolution: enumValidator(imagePolicy.resolutionOptions),
-        referenceImages: stringArrayValidator({ maxLength: OPENROUTER_IMAGE_REFERENCE_LIMITS[modelId] }),
-        ...(modelId === OPENROUTER_SEEDREAM_5_PRO_MODEL_ID ? { seed: integerRangeValidator({}) } : {}),
+        referenceImages: stringArrayValidator({ maxLength: OPENROUTER_IMAGE_REFERENCE_LIMITS[catalogModelId] }),
+        ...(catalogModelId === OPENROUTER_SEEDREAM_5_PRO_MODEL_ID ? { seed: integerRangeValidator({}) } : {}),
       },
       normalize: (options: AiReadonlyUnknownObject): AiUnknownObject => ({
         ...options,
@@ -627,6 +664,6 @@ export function resolveOpenRouterOptionSchema(modality: MediaModality, modelId?:
       }),
     })
   }
-  if (modality === 'video') return buildOpenRouterVideoOptionSchema(modelId)
+  if (modality === 'video') return buildOpenRouterVideoOptionSchema(modelId, providerId)
   return buildMediaOptionSchema(modality)
 }

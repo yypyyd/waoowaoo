@@ -426,19 +426,33 @@ export async function projectCodexProviderResponse(
     })
   }
   if (providerStatus >= 400 && providerStatus < 500) {
+    // Some OpenAI-compatible relays (custom openrouter:* base URLs) reject
+    // prompts under a content filter but answer with HTTP 400 + machine code
+    // `server_error` and the prose "Invalid request parameter". Keep the
+    // request_rejected kind (prose is not an oracle for SENSITIVE_CONTENT),
+    // but replace that misleading diagnostic so the product View points at
+    // input content rather than a bogus request-shape bug.
+    const misleadingGatewayRejection = metadata.code === 'server_error'
+      && typeof metadata.message === 'string'
+      && metadata.message.trim().toLowerCase() === 'invalid request parameter'
+    const diagnosticMessage = misleadingGatewayRejection
+      ? 'Upstream gateway rejected the request. Some OpenAI-compatible relays report content-policy blocks as Invalid request parameter; revise the prompt or try another model.'
+      : metadata.message
     return failedProjection({
       response: canonicalCodexErrorResponse({
         source: response,
         status: 400,
         type: 'invalid_request_error',
         code: 'invalid_request',
-        message: metadata.message,
+        message: diagnosticMessage,
       }),
       failureKind: 'request_rejected',
       providerStatus,
       providerCode,
       providerErrorType,
-      metadata,
+      metadata: misleadingGatewayRejection
+        ? { ...metadata, message: diagnosticMessage }
+        : metadata,
     })
   }
   if (providerStatus >= 500) {

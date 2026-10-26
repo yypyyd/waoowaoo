@@ -26,6 +26,8 @@ export function ApiConfigTabContainer() {
     saveStatus,
     saveError,
     updateProviderApiKey,
+    updateProviderBaseUrl,
+    addProvider,
     reorderProviders,
     deleteProvider,
     selectSlotModel,
@@ -122,6 +124,8 @@ export function ApiConfigTabContainer() {
             defaultModels={defaultModels}
             getModelsForProvider={getModelsForProvider}
             onUpdateApiKey={updateProviderApiKey}
+            onUpdateBaseUrl={updateProviderBaseUrl}
+            onAddProvider={addProvider}
             onReorderProviders={reorderProviders}
             onDeleteModel={deleteModel}
             onUpdateModel={updateModel}
@@ -132,6 +136,16 @@ export function ApiConfigTabContainer() {
               providerPoolHint: t('providerPoolHint'),
               dragToSort: t('dragToSort'),
               moreProviders: t('moreProviders'),
+              addPlatform: t('addPlatform'),
+              addPlatformHint: t('addPlatformHint'),
+              platformName: t('platformName'),
+              platformNamePlaceholder: t('platformNamePlaceholder'),
+              platformBaseUrlPlaceholder: t('platformBaseUrlPlaceholder'),
+              platformApiKeyPlaceholder: t('platformApiKeyPlaceholder'),
+              createPlatform: t('createPlatform'),
+              platformNameRequired: t('platformNameRequired'),
+              baseUrlInvalid: t('baseUrlInvalid'),
+              cancel: t('cancel'),
             }}
           />
         </div>

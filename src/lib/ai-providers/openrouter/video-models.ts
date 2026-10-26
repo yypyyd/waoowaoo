@@ -6,6 +6,7 @@ import {
   integerRangeValidator,
   stringArrayValidator,
 } from '@/lib/ai-providers/shared/option-schema'
+import { ASPECT_RATIO_CONFIGS } from '@/lib/constants'
 
 export const OPENROUTER_SEEDANCE_2_VIDEO_MODEL_ID = 'bytedance/seedance-2.0'
 export const OPENROUTER_SEEDANCE_2_FAST_VIDEO_MODEL_ID = 'bytedance/seedance-2.0-fast'
@@ -157,8 +158,26 @@ export function resolveOpenRouterVideoModel(modelId: string | undefined): OpenRo
   return model
 }
 
-export function buildOpenRouterVideoOptionSchema(modelId: string | undefined): AiOptionSchema {
-  const model = resolveOpenRouterVideoModel(modelId)
+/**
+ * Builds the option schema for an OpenRouter video model. Instantiated providers
+ * (openrouter:<suffix>) back user-added platforms whose model ids are arbitrary,
+ * so unknown ids fall back to a generic schema instead of the catalog whitelist.
+ */
+export function buildOpenRouterVideoOptionSchema(
+  modelId: string | undefined,
+  providerId?: string,
+): AiOptionSchema {
+  const model = OPENROUTER_VIDEO_MODELS.find((candidate) => candidate.modelId === modelId)
+  if (!model) {
+    if (providerId && providerId.includes(':')) {
+      return buildMediaOptionSchema('video', {
+        validators: {
+          aspectRatio: enumValidator(Object.keys(ASPECT_RATIO_CONFIGS)),
+        },
+      })
+    }
+    throw new Error(`OPENROUTER_VIDEO_MODEL_UNSUPPORTED:${modelId ?? '<missing>'}`)
+  }
   const caps = model.capabilities
   return buildMediaOptionSchema('video', {
     allowedKeys: ['referenceImages', 'referenceAudios', 'referenceVideos'],
